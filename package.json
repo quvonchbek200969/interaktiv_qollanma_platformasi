@@ -1,0 +1,19 @@
+{
+  "name": "edu-platform-backend",
+  "version": "1.0.0",
+  "description": "Interaktiv o'quv platformasi - backend server",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.4.5"
+  }
+}
