@@ -1,0 +1,2 @@
+# interaktiv_qollanma_platformasi
+auditoriya
