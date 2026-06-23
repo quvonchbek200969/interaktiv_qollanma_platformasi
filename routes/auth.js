@@ -20,7 +20,9 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Parol kiritilishi shart.' });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE full_name = ?').get(full_name.trim());
+    const input = full_name.trim();
+    // Ism yoki email bo'yicha qidirish
+    const user = db.prepare('SELECT * FROM users WHERE full_name = ? OR email = ?').get(input, input);
 
     if (!user) {
       return res.status(401).json({ error: 'Ism yoki parol noto\'g\'ri.' });
