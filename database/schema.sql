@@ -1,8 +1,8 @@
 -- schema.sql — Ma'lumotlar bazasi tuzilishi
 -- 4 asosiy jadval: users, content (kitob/video/audio/youtube), blog_posts, suggestions
--- ESLATMA: Agar eski platform.db da ustunlar yetishmasa (is_admin, youtube_url, content_source),
--- backend/database/ papkasidagi platform.db faylini o'chirib serverni qayta ishga tushiring.
--- Development bosqichida ma'lumotlar yo'qolishi muammo emas.
+-- ESLATMA: database/db.js endi avtomatik migratsiya qiladi — agar eski platform.db da
+-- is_admin, content_source, youtube_url ustunlari yo'q bo'lsa, ular ALTER TABLE orqali
+-- avtomatik qo'shiladi (server ishga tushishida). Ma'lumotlarni yo'qotmasdan davom etadi.
 
 -- FOYDALANUVCHILAR JADVALI
 CREATE TABLE IF NOT EXISTS users (

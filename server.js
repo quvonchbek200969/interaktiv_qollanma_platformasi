@@ -6,6 +6,24 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+// ===== MUHIM MUHIT O'ZGARUVCHILARINI TEKSHIRISH =====
+// JWT_SECRET bo'lmasa, login/register paytida "Server xatosi yuz berdi" kabi
+// tushunarsiz xato chiqadi (jwt.sign secretOrPrivateKey talab qiladi).
+// Shuning uchun server ishga tushishidanoq buni tekshirib, aniq xabar bilan to'xtatamiz.
+if (!process.env.JWT_SECRET || !process.env.JWT_SECRET.trim()) {
+  console.error('\n❌ XATOLIK: JWT_SECRET muhit o\'zgaruvchisi topilmadi yoki bo\'sh.');
+  console.error('   backend/.env faylida JWT_SECRET=... qiymatini o\'rnating.');
+  console.error('   (Hosting platformasida bo\'lsa, Environment Variables bo\'limiga qo\'shing.)\n');
+  process.exit(1);
+}
+
+// ANTHROPIC_API_KEY bo'lmasa, AI Kitob O'quvchi ishlamaydi, lekin bu boshqa
+// funksiyalarni to'xtatmasligi kerak — shuning uchun faqat ogohlantirish chiqaramiz.
+if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'your_anthropic_api_key_here') {
+  console.warn('\n⚠️  OGOHLANTIRISH: ANTHROPIC_API_KEY o\'rnatilmagan yoki placeholder qiymatda.');
+  console.warn('   "AI bilan o\'qi" funksiyasi ishlamaydi. backend/.env faylida haqiqiy kalitni qo\'ying.\n');
+}
+
 // Ma'lumotlar bazasini ishga tushirish (jadvallar avtomatik yaraladi)
 require('./database/db');
 
