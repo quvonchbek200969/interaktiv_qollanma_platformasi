@@ -25,6 +25,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/content', require('./routes/content'));
 app.use('/api/suggestions', require('./routes/suggestions'));
 app.use('/api/blog', require('./routes/blog'));
+app.use('/api/ai', require('./routes/ai'));
 
 // Tekshirish uchun oddiy yo'l
 app.get('/api/health', (req, res) => {

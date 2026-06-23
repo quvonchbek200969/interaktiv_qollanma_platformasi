@@ -14,18 +14,15 @@ const requireAdmin = require('../middleware/adminAuth');
 const router = express.Router();
 
 // ===== MULTER SOZLAMASI (fayl yuklash) =====
-// Kontent turiga qarab to'g'ri papkaga saqlash: uploads/books, uploads/videos, uploads/audio
+// MUHIM: multipart/form-data da req.body.type multer ishlashidan OLDIN mavjud bo'lmasligi mumkin.
+// Shuning uchun destination da type undefined bo'lsa 'uploads/tmp' papkasiga saqlanadi,
+// so'ng upload endpointida to'g'ri papkaga ko'chiriladi.
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const type = req.body.type; // 'book' | 'video' | 'audio'
-    const folderMap = { book: 'books', video: 'videos', audio: 'audio' };
-    const folder = folderMap[type];
-
-    if (!folder) {
-      return cb(new Error('Noto\'g\'ri kontent turi. type: book, video yoki audio bo\'lishi kerak.'));
-    }
-
-    cb(null, path.join(__dirname, '..', 'uploads', folder));
+    // type hali req.body da bo'lmasligi mumkin — shuning uchun 'tmp' papkasidan foydalanamiz
+    const tmpDir = path.join(__dirname, '..', 'uploads', 'tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    cb(null, tmpDir);
   },
   filename: (req, file, cb) => {
     // Nomlar to'qnashmasligi uchun: vaqt + asl nom
@@ -76,16 +73,25 @@ router.post('/upload', requireAuth, upload.single('file'), (req, res) => {
     const { type, title, description } = req.body;
 
     if (!type || !title) {
+      // Agar fayl tmp ga yuklangan bo'lsa, uni o'chiramiz
+      if (req.file) fs.unlink(req.file.path, () => {});
       return res.status(400).json({ error: 'Kontent turi (type) va sarlavha (title) kiritilishi shart.' });
     }
     if (!['book', 'video', 'audio'].includes(type)) {
+      if (req.file) fs.unlink(req.file.path, () => {});
       return res.status(400).json({ error: 'Noto\'g\'ri kontent turi.' });
     }
     if (!req.file) {
       return res.status(400).json({ error: 'Fayl yuklanmadi.' });
     }
 
+    // tmp papkasidan to'g'ri papkaga ko'chirish
     const folderMap = { book: 'books', video: 'videos', audio: 'audio' };
+    const targetDir = path.join(__dirname, '..', 'uploads', folderMap[type]);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, req.file.filename);
+    fs.renameSync(req.file.path, targetPath);
+
     const relativePath = `/uploads/${folderMap[type]}/${req.file.filename}`;
 
     const result = db.prepare(`
