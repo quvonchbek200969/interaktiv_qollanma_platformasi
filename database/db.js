@@ -1,5 +1,5 @@
-// db.js — Ma'lumotlar bazasiga ulanish va sxemani ishga tushirish
-const { DatabaseSync } = require('node:sqlite');
+// db.js — Ma'lumotlar bazasiga ulanish (better-sqlite3)
+const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -7,8 +7,12 @@ const bcrypt = require('bcryptjs');
 const DB_PATH = path.join(__dirname, 'platform.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 
-const db = new DatabaseSync(DB_PATH);
+const db = new Database(DB_PATH);
 
+// WAL rejimi — yozish tezligi uchun
+db.pragma('journal_mode = WAL');
+
+// Schema yaratish
 const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
 const tableStatements = [];
 const indexStatements = [];
@@ -43,29 +47,28 @@ indexStatements.forEach((stmt) => db.exec(stmt + ';'));
 console.log("Ma'lumotlar bazasi tayyor:", DB_PATH);
 
 // ===== SEED: ADMIN AKAUNT =====
-// Admin emaili va paroli — .env dan olinadi yoki quyidagi default
 (function seedAdminUser() {
-  const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'qochqorovquvonchbek737@gmail.com';
-  const ADMIN_NAME  = process.env.ADMIN_NAME  || 'Admin';
-  const ADMIN_PASS  = process.env.ADMIN_PASSWORD || 'admin123'; // .env da o'zgartiring!
+  const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'qochqorovquvonchbek737@gmail.com';
+  const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Admin';
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
   const existing = db.prepare('SELECT id, password_hash FROM users WHERE email = ?').get(ADMIN_EMAIL);
 
   if (!existing) {
-    const hash = bcrypt.hashSync(ADMIN_PASS, 10);
+    const hash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
     db.prepare(
       'INSERT INTO users (full_name, email, password_hash, is_admin) VALUES (?, ?, ?, 1)'
     ).run(ADMIN_NAME, ADMIN_EMAIL, hash);
-    console.log('✅ Admin akaunt yaratildi:', ADMIN_EMAIL, '| Parol:', ADMIN_PASS);
+    console.log('✅ Admin akaunt yaratildi:', ADMIN_EMAIL, '| Parol:', ADMIN_PASSWORD);
   } else {
-    // is_admin = 1 ga o'rnatish
+    // is_admin ni doim 1 ga o'rnatish
     db.prepare('UPDATE users SET is_admin = 1 WHERE email = ?').run(ADMIN_EMAIL);
 
-    // Agar parol hali hash qilinmagan bo'lsa — yangilaymiz
+    // Agar parol hali hash qilinmagan (eski tizim) bo'lsa — yangilaymiz
     if (existing.password_hash === 'no-password') {
-      const hash = bcrypt.hashSync(ADMIN_PASS, 10);
+      const hash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
       db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(hash, ADMIN_EMAIL);
-      console.log('✅ Admin paroli yangilandi. Parol:', ADMIN_PASS);
+      console.log('✅ Admin paroli yangilandi. Parol:', ADMIN_PASSWORD);
     }
   }
 })();

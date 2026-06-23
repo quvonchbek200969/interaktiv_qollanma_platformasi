@@ -1,4 +1,4 @@
-// routes/auth.js — Ro'yxatdan o'tish, login va admin kirish
+// routes/auth.js
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -7,57 +7,8 @@ const db = require('../database/db');
 
 const router = express.Router();
 
-// ===== RO'YXATDAN O'TISH =====
-// POST /api/auth/register
-// Body: { full_name, password }
-router.post('/register', async (req, res) => {
-  try {
-    const { full_name, password } = req.body;
-
-    if (!full_name || !full_name.trim()) {
-      return res.status(400).json({ error: 'Ism kiritilishi shart.' });
-    }
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak.' });
-    }
-
-    const name = full_name.trim();
-
-    // Ism band bo'lsa xato
-    const existing = db.prepare('SELECT id FROM users WHERE full_name = ?').get(name);
-    if (existing) {
-      return res.status(409).json({ error: 'Bu ism allaqachon band. Boshqa ism tanlang.' });
-    }
-
-    const password_hash = await bcrypt.hash(password, 10);
-    const email = `user_${Date.now()}@platform.local`;
-
-    const result = db.prepare(
-      'INSERT INTO users (full_name, email, password_hash) VALUES (?, ?, ?)'
-    ).run(name, email, password_hash);
-
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
-
-    res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        full_name: user.full_name,
-        email: user.email,
-        is_admin: user.is_admin
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server xatosi.' });
-  }
-});
-
-// ===== LOGIN =====
-// POST /api/auth/login
-// Body: { full_name, password }
+// ===== LOGIN — ism + parol =====
+// Admin emaili bilan kirganda is_admin avtomatik aniqlanadi
 router.post('/login', async (req, res) => {
   try {
     const { full_name, password } = req.body;
@@ -75,9 +26,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Ism yoki parol noto\'g\'ri.' });
     }
 
-    // Admin — email orqali ham kirishi mumkin
     if (user.password_hash === 'no-password') {
-      return res.status(401).json({ error: 'Bu akkaunt eski tizimda yaratilgan. Admin bilan bog\'laning.' });
+      return res.status(401).json({ error: 'Parolingiz yo\'q. Admin bilan bog\'laning.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -102,43 +52,39 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== ADMIN LOGIN (email + parol) =====
-// POST /api/auth/admin-login
-// Body: { email, password }
-router.post('/admin-login', async (req, res) => {
+// ===== FOYDALANUVCHI QO'SHISH — faqat admin =====
+// POST /api/auth/add-user
+// Body: { full_name, password }
+const requireAuth = require('../middleware/auth');
+const requireAdmin = require('../middleware/adminAuth');
+
+router.post('/add-user', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { full_name, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email va parol kiritilishi shart.' });
+    if (!full_name || !full_name.trim()) {
+      return res.status(400).json({ error: 'Ism kiritilishi shart.' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak.' });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_admin = 1').get(email.trim().toLowerCase());
-
-    if (!user) {
-      return res.status(401).json({ error: 'Admin topilmadi yoki ruxsat yo\'q.' });
+    const name = full_name.trim();
+    const existing = db.prepare('SELECT id FROM users WHERE full_name = ?').get(name);
+    if (existing) {
+      return res.status(409).json({ error: 'Bu ism allaqachon band.' });
     }
 
-    // Agar admin paroli hali o'rnatilmagan bo'lsa
-    if (user.password_hash === 'no-password') {
-      return res.status(401).json({ error: 'Admin paroli o\'rnatilmagan. db.js da seedAdminUser funksiyasini yangilang.' });
-    }
+    const password_hash = await bcrypt.hash(password, 10);
+    const email = `user_${Date.now()}@platform.local`;
 
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Email yoki parol noto\'g\'ri.' });
-    }
+    const result = db.prepare(
+      'INSERT INTO users (full_name, email, password_hash, is_admin) VALUES (?, ?, ?, 0)'
+    ).run(name, email, password_hash);
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        full_name: user.full_name,
-        email: user.email,
-        is_admin: user.is_admin
-      }
+    res.status(201).json({
+      message: 'Foydalanuvchi muvaffaqiyatli qo\'shildi.',
+      user: { id: result.lastInsertRowid, full_name: name }
     });
   } catch (err) {
     console.error(err);
@@ -146,9 +92,21 @@ router.post('/admin-login', async (req, res) => {
   }
 });
 
-// ===== ESKI /enter yo'li (orqaga moslik uchun) =====
-router.post('/enter', (req, res) => {
-  return res.status(410).json({ error: 'Bu endpoint o\'chirildi. /register yoki /login dan foydalaning.' });
+// ===== FOYDALANUVCHILAR RO'YXATI — faqat admin =====
+router.get('/users-list', requireAuth, requireAdmin, (req, res) => {
+  const users = db.prepare(
+    'SELECT id, full_name, is_admin, created_at FROM users ORDER BY created_at DESC'
+  ).all();
+  res.json({ users });
+});
+
+// ===== FOYDALANUVCHI O'CHIRISH — faqat admin =====
+router.delete('/users-list/:id', requireAuth, requireAdmin, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Foydalanuvchi topilmadi.' });
+  if (user.is_admin) return res.status(403).json({ error: 'Adminni o\'chirib bo\'lmaydi.' });
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Foydalanuvchi o\'chirildi.' });
 });
 
 module.exports = router;
