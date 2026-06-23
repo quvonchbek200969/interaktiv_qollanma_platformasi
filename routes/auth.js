@@ -7,6 +7,54 @@ const db = require('../database/db');
 
 const router = express.Router();
 
+// ===== OCHIQ RO'YXATDAN O'TISH =====
+// Birinchi ro'yxatdan o'tgan foydalanuvchi avtomatik admin bo'ladi
+router.post('/register', async (req, res) => {
+  try {
+    const { full_name, password } = req.body;
+
+    if (!full_name || !full_name.trim()) {
+      return res.status(400).json({ error: 'Ism kiritilishi shart.' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak.' });
+    }
+
+    const name = full_name.trim();
+    const existing = db.prepare('SELECT id FROM users WHERE full_name = ?').get(name);
+    if (existing) {
+      return res.status(409).json({ error: 'Bu ism allaqachon band. Boshqa ism tanlang.' });
+    }
+
+    // Bazada birorta foydalanuvchi bormi? Yo'q bo'lsa — birinchi, ya'ni admin
+    const userCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
+    const isFirstUser = userCount.cnt === 0;
+
+    const password_hash = await bcrypt.hash(password, 10);
+    const email = `user_${Date.now()}@platform.local`;
+
+    const result = db.prepare(
+      'INSERT INTO users (full_name, email, password_hash, is_admin) VALUES (?, ?, ?, ?)'
+    ).run(name, email, password_hash, isFirstUser ? 1 : 0);
+
+    const token = jwt.sign({ userId: result.lastInsertRowid }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.status(201).json({
+      token,
+      user: {
+        id: result.lastInsertRowid,
+        full_name: name,
+        email,
+        is_admin: isFirstUser ? 1 : 0
+      },
+      isFirstAdmin: isFirstUser
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server xatosi.' });
+  }
+});
+
 // ===== LOGIN — ism + parol =====
 // Admin emaili bilan kirganda is_admin avtomatik aniqlanadi
 router.post('/login', async (req, res) => {

@@ -46,30 +46,13 @@ indexStatements.forEach((stmt) => db.exec(stmt + ';'));
 
 console.log("Ma'lumotlar bazasi tayyor:", DB_PATH);
 
-// ===== SEED: ADMIN AKAUNT =====
-(function seedAdminUser() {
-  const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'qochqorovquvonchbek737@gmail.com';
-  const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Admin';
-  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-
-  const existing = db.prepare('SELECT id, password_hash FROM users WHERE email = ?').get(ADMIN_EMAIL);
-
-  if (!existing) {
-    const hash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-    db.prepare(
-      'INSERT INTO users (full_name, email, password_hash, is_admin) VALUES (?, ?, ?, 1)'
-    ).run(ADMIN_NAME, ADMIN_EMAIL, hash);
-    console.log('✅ Admin akaunt yaratildi:', ADMIN_EMAIL, '| Parol:', ADMIN_PASSWORD);
-  } else {
-    // is_admin ni doim 1 ga o'rnatish
-    db.prepare('UPDATE users SET is_admin = 1 WHERE email = ?').run(ADMIN_EMAIL);
-
-    // Agar parol hali hash qilinmagan (eski tizim) bo'lsa — yangilaymiz
-    if (existing.password_hash === 'no-password') {
-      const hash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-      db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(hash, ADMIN_EMAIL);
-      console.log('✅ Admin paroli yangilandi. Parol:', ADMIN_PASSWORD);
-    }
+// ===== BIRINCHI FOYDALANUVCHI — ADMIN =====
+// Agar bazada hech kim yo'q bo'lsa, birinchi ro'yxatdan o'tuvchi avtomatik admin bo'ladi.
+// Bu mantiq /api/auth/register endpointida ishlaydi.
+(function checkFirstUser() {
+  const count = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
+  if (count.cnt === 0) {
+    console.log("INFO: Bazada foydalanuvchi yo'q. Birinchi ro'yxatdan o'tuvchi avtomatik ADMIN bo'ladi.");
   }
 })();
 
