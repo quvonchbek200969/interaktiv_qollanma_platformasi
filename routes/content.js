@@ -1,7 +1,6 @@
 // routes/content.js — Kontent boshqaruvi
-// Oddiy foydalanuvchi: o'z fayllarini (kitob/video/audio) yuklaydi, ko'radi, o'chiradi
-// Admin: YouTube link qo'shadi (serverga yuklamasdan), o'chiradi
-// Hamma: barcha kontentni ko'ra oladi (GET /api/content)
+// Faqat ADMIN: yuklash, YouTube qo'shish, o'chirish
+// Barcha foydalanuvchilar: ko'rish va yuklab olish
 
 const express = require('express');
 const multer = require('multer');
@@ -13,53 +12,37 @@ const requireAdmin = require('../middleware/adminAuth');
 
 const router = express.Router();
 
-// ===== MULTER SOZLAMASI (fayl yuklash) =====
-// MUHIM: multipart/form-data da req.body.type multer ishlashidan OLDIN mavjud bo'lmasligi mumkin.
-// Shuning uchun destination da type undefined bo'lsa 'uploads/tmp' papkasiga saqlanadi,
-// so'ng upload endpointida to'g'ri papkaga ko'chiriladi.
+// ===== MULTER SOZLAMASI =====
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // type hali req.body da bo'lmasligi mumkin — shuning uchun 'tmp' papkasidan foydalanamiz
     const tmpDir = path.join(__dirname, '..', 'uploads', 'tmp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
     cb(null, tmpDir);
   },
   filename: (req, file, cb) => {
-    // Nomlar to'qnashmasligi uchun: vaqt + asl nom
     const safeName = Date.now() + '-' + file.originalname.replace(/\s+/g, '_');
     cb(null, safeName);
   }
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 200 * 1024 * 1024 } // 200 MB chegarasi
-});
+const upload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 } });
 
 // ===== KONTENT RO'YXATINI OLISH (hamma uchun ochiq) =====
-// GET /api/content?type=video  (type ixtiyoriy filter)
 router.get('/', (req, res) => {
   const { type } = req.query;
-
   let query = `
     SELECT content.*, users.full_name AS author_name
     FROM content
     JOIN users ON content.user_id = users.id
   `;
   const params = [];
-
-  if (type) {
-    query += ' WHERE content.type = ?';
-    params.push(type);
-  }
-
+  if (type) { query += ' WHERE content.type = ?'; params.push(type); }
   query += ' ORDER BY content.created_at DESC';
-
   const items = db.prepare(query).all(...params);
   res.json({ content: items });
 });
 
-// ===== O'Z KONTENTLARIMNI OLISH =====
+// ===== O'Z KONTENTLARINI OLISH (admin uchun) =====
 router.get('/mine', requireAuth, (req, res) => {
   const items = db.prepare(
     'SELECT * FROM content WHERE user_id = ? ORDER BY created_at DESC'
@@ -67,15 +50,14 @@ router.get('/mine', requireAuth, (req, res) => {
   res.json({ content: items });
 });
 
-// ===== FAYL YUKLASH (kitob/video/audio) — har qanday login qilgan foydalanuvchi =====
-router.post('/upload', requireAuth, upload.single('file'), (req, res) => {
+// ===== FAYL YUKLASH — FAQAT ADMIN =====
+router.post('/upload', requireAuth, requireAdmin, upload.single('file'), (req, res) => {
   try {
     const { type, title, description } = req.body;
 
     if (!type || !title) {
-      // Agar fayl tmp ga yuklangan bo'lsa, uni o'chiramiz
       if (req.file) fs.unlink(req.file.path, () => {});
-      return res.status(400).json({ error: 'Kontent turi (type) va sarlavha (title) kiritilishi shart.' });
+      return res.status(400).json({ error: 'Kontent turi va sarlavha kiritilishi shart.' });
     }
     if (!['book', 'video', 'audio'].includes(type)) {
       if (req.file) fs.unlink(req.file.path, () => {});
@@ -85,7 +67,6 @@ router.post('/upload', requireAuth, upload.single('file'), (req, res) => {
       return res.status(400).json({ error: 'Fayl yuklanmadi.' });
     }
 
-    // tmp papkasidan to'g'ri papkaga ko'chirish
     const folderMap = { book: 'books', video: 'videos', audio: 'audio' };
     const targetDir = path.join(__dirname, '..', 'uploads', folderMap[type]);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
@@ -101,60 +82,41 @@ router.post('/upload', requireAuth, upload.single('file'), (req, res) => {
 
     res.status(201).json({
       message: 'Fayl muvaffaqiyatli yuklandi.',
-      content: {
-        id: result.lastInsertRowid,
-        type,
-        title,
-        description: description || '',
-        file_path: relativePath,
-        file_size: req.file.size
-      }
+      content: { id: result.lastInsertRowid, type, title, description: description || '', file_path: relativePath }
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Fayl yuklashda xatolik yuz berdi.' });
+    res.status(500).json({ error: 'Fayl yuklashda xatolik.' });
   }
 });
 
-// ===== O'Z KONTENTINI O'CHIRISH (faqat egasi) =====
-router.delete('/:id', requireAuth, (req, res) => {
+// ===== KONTENTNI O'CHIRISH — FAQAT ADMIN =====
+router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
   const item = db.prepare('SELECT * FROM content WHERE id = ?').get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Kontent topilmadi.' });
 
-  if (!item) {
-    return res.status(404).json({ error: 'Kontent topilmadi.' });
-  }
-  if (item.user_id !== req.userId) {
-    return res.status(403).json({ error: 'Siz faqat o\'zingizning kontentingizni o\'chira olasiz.' });
-  }
-
-  // Agar fayl serverda saqlangan bo'lsa (upload turi), uni diskdan ham o'chiramiz
   if (item.content_source === 'upload' && item.file_path) {
     const fullPath = path.join(__dirname, '..', item.file_path);
-    fs.unlink(fullPath, (err) => {
-      if (err) console.error('Faylni o\'chirishda xato (e\'tiborsiz qoldiriladi):', err.message);
-    });
+    fs.unlink(fullPath, (err) => { if (err) console.error('Fayl o\'chirishda xato:', err.message); });
   }
 
   db.prepare('DELETE FROM content WHERE id = ?').run(req.params.id);
-  res.json({ message: 'Kontent muvaffaqiyatli o\'chirildi.' });
+  res.json({ message: 'Kontent o\'chirildi.' });
 });
 
-// ===== ADMIN: YOUTUBE LINK QO'SHISH (serverga yuklamasdan) =====
-// POST /api/content/youtube — faqat admin, type: video yoki audio, youtube_url majburiy
+// ===== ADMIN: YOUTUBE LINK QO'SHISH =====
 router.post('/youtube', requireAuth, requireAdmin, (req, res) => {
   const { type, title, description, youtube_url } = req.body;
 
   if (!type || !title || !youtube_url) {
-    return res.status(400).json({ error: 'Kontent turi (type), sarlavha (title) va YouTube link (youtube_url) kiritilishi shart.' });
+    return res.status(400).json({ error: 'Tur, sarlavha va YouTube link kiritilishi shart.' });
   }
   if (!['video', 'audio'].includes(type)) {
-    return res.status(400).json({ error: 'YouTube uchun kontent turi faqat video yoki audio bo\'lishi mumkin.' });
+    return res.status(400).json({ error: 'YouTube uchun tur faqat video yoki audio.' });
   }
-
-  // Oddiy tekshiruv: link YouTube'ga tegishli ekanligini ko'ramiz
   const isYoutubeLink = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//.test(youtube_url.trim());
   if (!isYoutubeLink) {
-    return res.status(400).json({ error: 'Iltimos, to\'g\'ri YouTube link kiriting.' });
+    return res.status(400).json({ error: 'To\'g\'ri YouTube link kiriting.' });
   }
 
   const result = db.prepare(`
@@ -162,29 +124,15 @@ router.post('/youtube', requireAuth, requireAdmin, (req, res) => {
     VALUES (?, ?, 'youtube', ?, ?, ?)
   `).run(req.userId, type, title, description || '', youtube_url.trim());
 
-  res.status(201).json({
-    message: 'YouTube kontent muvaffaqiyatli qo\'shildi.',
-    content: {
-      id: result.lastInsertRowid,
-      type,
-      content_source: 'youtube',
-      title,
-      description: description || '',
-      youtube_url: youtube_url.trim()
-    }
-  });
+  res.status(201).json({ message: 'YouTube kontent qo\'shildi.', content: { id: result.lastInsertRowid } });
 });
 
 // ===== ADMIN: YOUTUBE KONTENTNI O'CHIRISH =====
 router.delete('/youtube/:id', requireAuth, requireAdmin, (req, res) => {
   const item = db.prepare('SELECT * FROM content WHERE id = ? AND content_source = ?').get(req.params.id, 'youtube');
-
-  if (!item) {
-    return res.status(404).json({ error: 'YouTube kontent topilmadi.' });
-  }
-
+  if (!item) return res.status(404).json({ error: 'YouTube kontent topilmadi.' });
   db.prepare('DELETE FROM content WHERE id = ?').run(req.params.id);
-  res.json({ message: 'YouTube kontent muvaffaqiyatli o\'chirildi.' });
+  res.json({ message: 'YouTube kontent o\'chirildi.' });
 });
 
 module.exports = router;

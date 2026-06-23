@@ -62,3 +62,22 @@ CREATE INDEX IF NOT EXISTS idx_content_source ON content(content_source);
 CREATE INDEX IF NOT EXISTS idx_blog_user ON blog_posts(user_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_user ON suggestions(user_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
+
+-- SOZLAMALAR JADVALI (fon rasm va boshqa global sozlamalar)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- KUNDALIK JADVALI (har bir foydalanuvchining shaxsiy yozuvlari)
+CREATE TABLE IF NOT EXISTS diary_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_diary_user ON diary_entries(user_id);
